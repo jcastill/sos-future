@@ -1,0 +1,44 @@
+# This file is part of the sos project: https://github.com/sosreport/sos
+#
+# This copyrighted material is made available to anyone wishing to use,
+# modify, copy, or redistribute it subject to the terms and conditions of
+# version 2 of the GNU General Public License.
+#
+# See the LICENSE file in the source distribution for further information.
+
+from sos.report.plugins import Plugin, RedHatPlugin, UbuntuPlugin
+
+
+class Dhcp(Plugin):
+
+    short_desc = 'DHCP daemon'
+
+    plugin_name = "dhcp"
+    profiles = ('network',)
+
+
+class RedHatDhcp(Dhcp, RedHatPlugin):
+
+    packages = ('dhcp', 'dhcp-server',)
+
+    def setup(self):
+        super().setup()
+        self.add_copy_spec([
+            "/etc/dhcpd.conf",
+            "/etc/dhcp"
+        ])
+
+
+class UbuntuDhcp(Dhcp, UbuntuPlugin):
+
+    files = ('/etc/init.d/udhcpd',)
+    packages = ('udhcpd',)
+
+    def setup(self):
+        super().setup()
+        self.add_copy_spec([
+            "/etc/default/udhcpd",
+            "/etc/udhcpd.conf"
+        ])
+
+# vim: set et ts=4 sw=4 :
