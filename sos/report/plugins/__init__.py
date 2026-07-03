@@ -1860,6 +1860,7 @@ class Plugin():
             limit_reached = False
 
             _manifest_files = []
+            _manifest_metadata = []
 
             for _file in files:
                 if _file in self.copy_paths:
@@ -1880,12 +1881,14 @@ class Plugin():
                     continue
 
                 try:
-                    file_size = os.stat(_file)[stat.ST_SIZE]
+                    file_stat = os.stat(_file)
+                    file_size = file_stat.st_size
                 except OSError:
                     # if _file is a broken symlink, we should collect it,
                     # otherwise skip it
                     if self.path_islink(_file):
                         file_size = 0
+                        file_stat = None
                     else:
                         self._log_info(f"failed to stat '{_file}', skipping")
                         continue
@@ -1909,6 +1912,16 @@ class Plugin():
                         add_size = sizelimit + file_size - current_size
                         self._tail_files_list.append((_file, add_size))
                         _manifest_files.append(_file.lstrip('/'))
+                        # Add metadata for tailed file
+                        if file_stat:
+                            _manifest_metadata.append({
+                                "path": _file.lstrip('/'),
+                                "source_path": _file,
+                                "mtime": file_stat.st_mtime,
+                                "size": file_stat.st_size,
+                                "collection_mode": "tailed",
+                                "tail_size": add_size
+                            })
                 else:
                     # size limit not exceeded, copy the file
                     _manifest_files.append(_file.lstrip('/'))
@@ -1916,6 +1929,15 @@ class Plugin():
                     # in the corner case we just reached the sizelimit, we
                     # should collect the whole file and stop
                     limit_reached = (sizelimit and current_size == sizelimit)
+                    # Add metadata for regular file
+                    if file_stat:
+                        _manifest_metadata.append({
+                            "path": _file.lstrip('/'),
+                            "source_path": _file,
+                            "mtime": file_stat.st_mtime,
+                            "size": file_stat.st_size,
+                            "collection_mode": "full"
+                        })
 
             if not container:
                 # container collection manifest additions are handled later
@@ -1923,6 +1945,7 @@ class Plugin():
                     self.manifest.files.append({
                         'specification': copyspec,
                         'files_copied': _manifest_files,
+                        'files_metadata': _manifest_metadata,
                         'tags': _spec_tags
                     })
         return None
