@@ -24,6 +24,7 @@ import logging
 import fnmatch
 import errno
 import textwrap
+import hashlib
 
 from datetime import datetime
 from pathlib import Path
@@ -547,6 +548,16 @@ class Plugin():
     option_list = []
     is_snap = False
 
+    # Critical paths for hash collection (for baseline comparison)
+    _HASH_CRITICAL_PATHS = (
+        '/etc/',           # Configuration files
+        '/boot/',          # Boot files (kernel, initramfs)
+        '/usr/bin/',       # System binaries
+        '/usr/sbin/',      # System admin binaries
+        '/lib/systemd/',   # Systemd unit files
+    )
+    _HASH_SIZE_LIMIT = 10 * 1024 * 1024  # 10MB maximum for hashing
+
     # Default predicates
     predicate = None
     cmd_predicate = None
@@ -680,6 +691,132 @@ class Plugin():
 
         fs_type = self._get_filesystem_type(path)
         return fs_type in skip_fs_types if fs_type else False
+
+    def _get_file_hash(self, path, algorithm='sha256', max_size=None):
+        """Compute hash of a file for content comparison.
+
+        :param path: Path to the file to hash
+        :type path: str
+
+        :param algorithm: Hash algorithm to use (default: sha256)
+        :type algorithm: str
+
+        :param max_size: Maximum file size to hash in bytes (default: 10MB)
+        :type max_size: int or None
+
+        :returns: Hexadecimal hash string or None if file too large or error
+        :rtype: str or None
+        """
+        if max_size is None:
+            max_size = self._HASH_SIZE_LIMIT
+
+        try:
+            # Check file size first
+            file_size = os.path.getsize(path)
+            if file_size > max_size:
+                self._log_debug(
+                    f"Skipping hash for '{path}': size {file_size} "
+                    f"exceeds limit {max_size}"
+                )
+                return None
+
+            h = hashlib.new(algorithm)
+            with open(path, 'rb') as f:
+                # Read in 64KB chunks for efficiency
+                while chunk := f.read(65536):
+                    h.update(chunk)
+            return h.hexdigest()
+        except (OSError, IOError) as err:
+            self._log_debug(f"Failed to hash '{path}': {err}")
+            return None
+
+    def _collect_file_metadata(self, path, file_stat=None):
+        """Collect comprehensive file metadata for baseline comparison.
+
+        Collects file metadata including size, timestamps, permissions,
+        ownership, SELinux context, and (for critical files) content hash.
+
+        :param path: The filesystem path to collect metadata for
+        :type path: str
+
+        :param file_stat: Optional pre-computed stat object to avoid re-stat
+        :type file_stat: os.stat_result or None
+
+        :returns: Dictionary of file metadata or None on error
+        :rtype: dict or None
+        """
+        if file_stat is None:
+            try:
+                file_stat = os.stat(path)
+            except OSError as err:
+                self._log_debug(f"Failed to stat '{path}': {err}")
+                return None
+
+        # Core metadata (Tier 1)
+        metadata = {
+            "path": path.lstrip('/'),  # Consistent with existing convention
+            "source_path": path,
+            "size": file_stat.st_size,
+            "mtime": file_stat.st_mtime,
+            "ctime": file_stat.st_ctime,  # Tier 2, but low overhead
+            "mode": oct(file_stat.st_mode)[-4:],  # 4-digit octal (e.g., "0644")
+            "uid": file_stat.st_uid,
+            "gid": file_stat.st_gid,
+        }
+
+        # Owner/group names (Tier 1) - graceful fallback if not available
+        try:
+            import pwd
+            import grp
+            metadata["owner"] = pwd.getpwuid(file_stat.st_uid).pw_name
+            metadata["group"] = grp.getgrgid(file_stat.st_gid).gr_name
+        except (ImportError, KeyError, OSError):
+            # pwd/grp not available (Windows) or user/group doesn't exist
+            pass
+
+        # File type detection (Tier 1)
+        if stat.S_ISLNK(file_stat.st_mode):
+            metadata["file_type"] = "symlink"
+            # Symlink target (Tier 2)
+            try:
+                metadata["symlink_target"] = os.readlink(path)
+            except OSError:
+                pass
+        elif stat.S_ISREG(file_stat.st_mode):
+            metadata["file_type"] = "file"
+        elif stat.S_ISDIR(file_stat.st_mode):
+            metadata["file_type"] = "directory"
+        elif stat.S_ISBLK(file_stat.st_mode):
+            metadata["file_type"] = "block_device"
+        elif stat.S_ISCHR(file_stat.st_mode):
+            metadata["file_type"] = "char_device"
+        elif stat.S_ISFIFO(file_stat.st_mode):
+            metadata["file_type"] = "fifo"
+        elif stat.S_ISSOCK(file_stat.st_mode):
+            metadata["file_type"] = "socket"
+        else:
+            metadata["file_type"] = "unknown"
+
+        # SELinux context (Tier 1 - critical for RHEL/Fedora)
+        try:
+            import selinux
+            if selinux.is_selinux_enabled():
+                context = selinux.getfilecon(path)
+                if context and len(context) > 1:
+                    metadata["selinux_context"] = context[1]
+        except (ImportError, OSError):
+            # selinux module not available or context read failed
+            pass
+
+        # Content hash (Tier 2 - only for regular files in critical paths)
+        if stat.S_ISREG(file_stat.st_mode):
+            # Check if file is in a critical path
+            if any(path.startswith(cpath) for cpath in self._HASH_CRITICAL_PATHS):
+                file_hash = self._get_file_hash(path)
+                if file_hash:
+                    metadata["sha256"] = file_hash
+
+        return metadata
 
     def set_plugin_manifest(self, manifest):
         """Pass in a manifest object to the plugin to write to
@@ -1988,14 +2125,11 @@ class Plugin():
                         _manifest_files.append(_file.lstrip('/'))
                         # Add metadata for tailed file
                         if file_stat and not self._should_skip_file_metadata(_file):
-                            _manifest_metadata.append({
-                                "path": _file.lstrip('/'),
-                                "source_path": _file,
-                                "mtime": file_stat.st_mtime,
-                                "size": file_stat.st_size,
-                                "collection_mode": "tailed",
-                                "tail_size": add_size
-                            })
+                            metadata = self._collect_file_metadata(_file, file_stat)
+                            if metadata:
+                                metadata["collection_mode"] = "tailed"
+                                metadata["tail_size"] = add_size
+                                _manifest_metadata.append(metadata)
                 else:
                     # size limit not exceeded, copy the file
                     _manifest_files.append(_file.lstrip('/'))
@@ -2005,13 +2139,10 @@ class Plugin():
                     limit_reached = (sizelimit and current_size == sizelimit)
                     # Add metadata for regular file
                     if file_stat and not self._should_skip_file_metadata(_file):
-                        _manifest_metadata.append({
-                            "path": _file.lstrip('/'),
-                            "source_path": _file,
-                            "mtime": file_stat.st_mtime,
-                            "size": file_stat.st_size,
-                            "collection_mode": "full"
-                        })
+                        metadata = self._collect_file_metadata(_file, file_stat)
+                        if metadata:
+                            metadata["collection_mode"] = "full"
+                            _manifest_metadata.append(metadata)
 
             if not container:
                 # container collection manifest additions are handled later
