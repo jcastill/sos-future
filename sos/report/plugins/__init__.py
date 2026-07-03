@@ -574,6 +574,7 @@ class Plugin():
         self.skip_commands = commons['cmdlineopts'].skip_commands
         self.default_environment = {}
         self._tail_files_list = []
+        self._mount_cache = None
 
         self.soslog = self.commons['soslog'] if 'soslog' in self.commons \
             else logging.getLogger('sos')
@@ -609,6 +610,76 @@ class Plugin():
                 desc='Enable post-processing of collected data'
             )
         }
+
+    def _get_filesystem_type(self, path):
+        """Get the filesystem type for a given path by parsing /proc/mounts.
+
+        Returns the filesystem type (e.g., 'ext4', 'nfs', 'proc', 'sysfs') or
+        None if the filesystem type cannot be determined.
+
+        :param path: The filesystem path to check
+        :type path: str
+
+        :returns: Filesystem type or None
+        :rtype: str or None
+        """
+        # Build mount cache on first call
+        if self._mount_cache is None:
+            self._mount_cache = []
+            try:
+                with open('/proc/mounts', 'r', encoding='UTF-8') as mounts_file:
+                    for line in mounts_file:
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            # parts[0] = device, parts[1] = mount_point,
+                            # parts[2] = fs_type
+                            mount_point = parts[1]
+                            fs_type = parts[2]
+                            self._mount_cache.append((mount_point, fs_type))
+            except Exception as err:
+                self._log_debug(f"Could not read /proc/mounts: {err}")
+                self._mount_cache = []
+
+            # Sort by mount point length (longest first) for proper matching
+            # This ensures /sys/kernel/debug matches before /sys
+            self._mount_cache.sort(key=lambda x: len(x[0]), reverse=True)
+
+        # Find the longest matching mount point
+        for mount_point, fs_type in self._mount_cache:
+            if path.startswith(mount_point):
+                return fs_type
+
+        return None
+
+    def _should_skip_file_metadata(self, path):
+        """Determine if size/mtime metadata should be skipped for a file.
+
+        Metadata collection is skipped for files on:
+        - Pseudo filesystems (proc, sysfs, debugfs, etc.)
+        - Network filesystems (nfs, nfs4, cifs, etc.)
+
+        :param path: The filesystem path to check
+        :type path: str
+
+        :returns: True if metadata should be skipped
+        :rtype: bool
+        """
+        # Filesystems where size/mtime are not meaningful or may cause hangs
+        pseudo_filesystems = {
+            'proc', 'sysfs', 'tmpfs', 'devtmpfs', 'devpts', 'debugfs',
+            'tracefs', 'cgroup', 'cgroup2', 'pstore', 'bpf', 'configfs',
+            'securityfs', 'fusectl', 'hugetlbfs', 'mqueue', 'ramfs'
+        }
+
+        network_filesystems = {
+            'nfs', 'nfs4', 'cifs', 'smbfs', 'autofs', 'fuse.sshfs',
+            'ncpfs', 'afs', 'glusterfs', 'lustre'
+        }
+
+        skip_fs_types = pseudo_filesystems | network_filesystems
+
+        fs_type = self._get_filesystem_type(path)
+        return fs_type in skip_fs_types if fs_type else False
 
     def set_plugin_manifest(self, manifest):
         """Pass in a manifest object to the plugin to write to
@@ -1533,7 +1604,9 @@ class Plugin():
             # FIXME: reflect permissions in archive
             self.archive.add_string("", dest)
         else:
+            self._log_debug(f"adding file '{srcpath}' to archive")
             self.archive.add_file(srcpath, dest, force=force)
+            self._log_debug(f"finished adding file '{srcpath}' to archive")
 
         self.copied_files.append({
             'srcpath': srcpath,
@@ -1881,6 +1954,7 @@ class Plugin():
                     continue
 
                 try:
+                    self._log_debug(f"collecting path '{_file}'")
                     file_stat = os.stat(_file)
                     file_size = file_stat.st_size
                 except OSError:
@@ -1913,7 +1987,7 @@ class Plugin():
                         self._tail_files_list.append((_file, add_size))
                         _manifest_files.append(_file.lstrip('/'))
                         # Add metadata for tailed file
-                        if file_stat:
+                        if file_stat and not self._should_skip_file_metadata(_file):
                             _manifest_metadata.append({
                                 "path": _file.lstrip('/'),
                                 "source_path": _file,
@@ -1930,7 +2004,7 @@ class Plugin():
                     # should collect the whole file and stop
                     limit_reached = (sizelimit and current_size == sizelimit)
                     # Add metadata for regular file
-                    if file_stat:
+                    if file_stat and not self._should_skip_file_metadata(_file):
                         _manifest_metadata.append({
                             "path": _file.lstrip('/'),
                             "source_path": _file,
