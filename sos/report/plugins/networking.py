@@ -79,6 +79,7 @@ class Networking(Plugin):
             "/proc/net/rpc/use-gss-proxy",
             "/proc/net/rpc/*/channel",
             "/proc/net/rpc/*/flush",
+            "/proc/net/rpc/*/content",
             # Cisco CDP
             "/proc/net/cdp",
             "/sys/net/cdp",
