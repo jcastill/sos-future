@@ -567,7 +567,7 @@ class FileCacheArchive(Archive):
                            "and underscores are allowed")
             return
 
-        date_str = datetime.strftime(datetime.now(), '%Y-%m-%d')
+        date_str = datetime.strftime(datetime.now(), '%Y-%m-%d_%H-%M-%S')
         name = f"-{name}" if name else ''
         filename = f'baseline{name}-{date_str}.json'
         baseline_dir = '/etc/sos/.captures'
