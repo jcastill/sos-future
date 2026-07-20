@@ -19,8 +19,6 @@ import os
 class SoSBaseline(SoSComponent):
 
     desc = "Compare baseline snapshots for system diff detection"
-    configure_logging = False
-    load_policy = False
     load_probe = False
 
     arg_defaults = {
@@ -54,21 +52,26 @@ class SoSBaseline(SoSComponent):
             self._do_diff()
 
     def _load_baseline(self, identifier):
-        """Load a baseline JSON file by date or name"""
+        """Load a baseline JSON file by date, name, or full path"""
         baseline_dir = self.opts.baseline_dir
-        # Lets try an exact match first
+
+        # Full path provided
+        if os.path.isfile(identifier):
+            with open(identifier, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        # Exact match by date or name
         path = os.path.join(baseline_dir, f"baseline-{identifier}.json")
         if os.path.exists(path):
             with open(path, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        # Lets try glob for named baselines
+        # Glob for named baselines
         matches = glob.glob(
             os.path.join(baseline_dir, f"baseline-*{identifier}*.json"))
         if matches:
             matches.sort(key=os.path.getmtime, reverse=True)
             with open(matches[0], 'r', encoding='utf-8') as f:
                 return json.load(f)
-        self.soslog.error(f"No baseline found matching '{identifier}'")
+        self.ui_log.error(f"No baseline found matching '{identifier}'")
         self._list_available()
         return None
 
@@ -79,19 +82,19 @@ class SoSBaseline(SoSComponent):
             glob.glob(os.path.join(baseline_dir, 'baseline-*.json')),
             key=os.path.getmtime, reverse=True)
         if not files:
-            print("No baseline snapshots found.")
+            self.ui_log.info("No baseline snapshots found.")
             return
         for f in files:
             size = os.path.getsize(f)
             name = os.path.basename(f)
-            print(f"    {name}    ({size:,} bytes)")
+            self.ui_log.info(f"    {name}    ({size:,} bytes)")
 
     def _do_list(self):
         self._list_available()
 
     def _do_diff(self):
         if not self.opts.date1 or not self.opts.date2:
-            self.soslog.error(
+            self.ui_log.error(
                 "diff requires two arguments: "
                 "sos baseline diff <date1> <date2>")
             return
