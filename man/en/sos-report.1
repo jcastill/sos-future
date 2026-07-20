@@ -29,6 +29,7 @@ sos_report \- Collect and package diagnostic and support data
           [--log-size]\fR
           [--journal-size]\fR
           [--all-logs]\fR
+          [--baseline]\fR
           [--since YYYYMMDD[HHMMSS]]\fR
           [--skip-commands commands]\fR
           [--skip-files files]\fR
@@ -212,6 +213,13 @@ of the final sos report tarball.
 Tell plugins to collect all possible log data ignoring any size limits
 and including logs in non-default locations. This option may significantly
 increase the size of reports.
+.TP
+.B \-\-baseline
+Collect enhanced file metadata for baseline comparison, including permissions,
+ownership, SELinux context, and SHA256 hashes for critical files. When specified,
+a dated snapshot is saved to \fB/etc/sos/.captures/baseline\-YYYY\-MM\-DD.json\fR
+for tracking system state changes over time by comparing baselines from different
+dates.
 .TP
 .B \--since YYYYMMDD[HHMMSS]
 Limits the collection of log archives to those newer than this date. A log

@@ -211,7 +211,10 @@ class SoSReport(SoSComponent):
                                 help="collect enhanced file metadata for "
                                      "baseline comparison (permissions, "
                                      "ownership, SELinux context, and SHA256 "
-                                     "hashes for critical files)")
+                                     "hashes for critical files). A dated "
+                                     "snapshot is saved to "
+                                     "/etc/sos/.captures/ for historical "
+                                     "tracking")
         report_grp.add_argument("--since", action="store",
                                 dest="since", default=None, type=_format_since,
                                 help="Escapes archived files older than date. "
