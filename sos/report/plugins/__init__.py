@@ -377,7 +377,6 @@ class SoSPredicate:
             'architecture': []
         }
 
-
 class SoSCommand:
     """A class to represent a command to be collected.
 
@@ -586,6 +585,7 @@ class Plugin():
         self.default_environment = {}
         self._tail_files_list = []
         self._mount_cache = None
+        self._capture_baseline = commons['cmdlineopts'].baseline
 
         self.soslog = self.commons['soslog'] if 'soslog' in self.commons \
             else logging.getLogger('sos')
@@ -2124,7 +2124,9 @@ class Plugin():
                         self._tail_files_list.append((_file, add_size))
                         _manifest_files.append(_file.lstrip('/'))
                         # Add metadata for tailed file
-                        if file_stat and not self._should_skip_file_metadata(_file):
+                        if file_stat and\
+                            not self._should_skip_file_metadata(_file)\
+                                and self._capture_baseline:
                             metadata = self._collect_file_metadata(_file, file_stat)
                             if metadata:
                                 metadata["collection_mode"] = "tailed"
@@ -2138,7 +2140,9 @@ class Plugin():
                     # should collect the whole file and stop
                     limit_reached = (sizelimit and current_size == sizelimit)
                     # Add metadata for regular file
-                    if file_stat and not self._should_skip_file_metadata(_file):
+                    if file_stat and\
+                        not self._should_skip_file_metadata(_file)\
+                            and self._capture_baseline:
                         metadata = self._collect_file_metadata(_file, file_stat)
                         if metadata:
                             metadata["collection_mode"] = "full"

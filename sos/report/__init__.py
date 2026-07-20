@@ -90,6 +90,7 @@ class SoSReport(SoSComponent):
     arg_defaults = {
         'alloptions': False,
         'all_logs': False,
+        'baseline': False,
         'build': False,
         'case_id': '',
         'chroot': 'auto',
@@ -205,6 +206,12 @@ class SoSReport(SoSComponent):
                                 dest="all_logs", default=False,
                                 help="collect all available logs regardless "
                                      "of size")
+        report_grp.add_argument("--baseline", action="store_true",
+                                dest="baseline", default=False,
+                                help="collect enhanced file metadata for "
+                                     "baseline comparison (permissions, "
+                                     "ownership, SELinux context, and SHA256 "
+                                     "hashes for critical files)")
         report_grp.add_argument("--since", action="store",
                                 dest="since", default=None, type=_format_since,
                                 help="Escapes archived files older than date. "
