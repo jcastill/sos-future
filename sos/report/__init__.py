@@ -1583,6 +1583,9 @@ class SoSReport(SoSComponent):
         self._add_sos_logs()
         if self.manifest is not None:
             self.archive.add_final_manifest_data(self.opts.compression_type)
+            # Save baseline snapshot if requested in the command line
+            if self.opts.baseline:
+                self.archive.save_baseline_snapshot()
         # Hide upload passwords in the log files
         self._obfuscate_upload_passwords()
         # Now, separately clean the log files that cleaner also wrote to
