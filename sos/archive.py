@@ -20,7 +20,7 @@ import re
 from datetime import datetime
 from threading import Lock
 from pathlib import Path                                              
-import json 
+import json
 
 from importlib.util import find_spec
 from sos.utilities import sos_get_command_output
@@ -557,12 +557,19 @@ class FileCacheArchive(Archive):
         self.add_string(self.manifest.get_json(indent=4),
                         os.path.join('sos_reports', 'manifest.json'))
 
-    def save_baseline_snapshot(self):
+    def save_baseline_snapshot(self, name=''):
         """Saves a manifest.json extended via baseline to
         the sos config directory
         """
+        if name and not re.match(r'^[a-zA-Z0-9._-]+$', name):
+            self.log_error(f"Invalid baseline name '{name}': "
+                           "only alphanumerics, dots, hyphens, "
+                           "and underscores are allowed")
+            return
+
         date_str = datetime.strftime(datetime.now(), '%Y-%m-%d')
-        filename = f'baseline-{date_str}.json'
+        name = f"-{name} if name else ''"
+        filename = f'baseline{name}-{date_str}.json'
         baseline_dir = '/etc/sos/.captures'
         baseline_path = os.path.join(baseline_dir, filename)
 

@@ -91,6 +91,7 @@ class SoSReport(SoSComponent):
         'alloptions': False,
         'all_logs': False,
         'baseline': False,
+        'baseline_name':'',
         'build': False,
         'case_id': '',
         'chroot': 'auto',
@@ -215,6 +216,10 @@ class SoSReport(SoSComponent):
                                      "snapshot is saved to "
                                      "/etc/sos/.captures/ for historical "
                                      "tracking")
+        report_grp.add_argument("--baseline-name", type=str, default='',
+                                dest="baseline_name",
+                                help="name for the baseline snapshot"
+                                "(creates baseline-NAME-YYYY-MM-DD.json)")
         report_grp.add_argument("--since", action="store",
                                 dest="since", default=None, type=_format_since,
                                 help="Escapes archived files older than date. "
@@ -1588,7 +1593,8 @@ class SoSReport(SoSComponent):
             self.archive.add_final_manifest_data(self.opts.compression_type)
             # Save baseline snapshot if requested in the command line
             if self.opts.baseline:
-                self.archive.save_baseline_snapshot()
+                self.archive.save_baseline_snapshot(
+                    name=self.opts.baseline_name)
         # Hide upload passwords in the log files
         self._obfuscate_upload_passwords()
         # Now, separately clean the log files that cleaner also wrote to
