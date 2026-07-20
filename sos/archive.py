@@ -568,7 +568,7 @@ class FileCacheArchive(Archive):
             return
 
         date_str = datetime.strftime(datetime.now(), '%Y-%m-%d')
-        name = f"-{name} if name else ''"
+        name = f"-{name}" if name else ''
         filename = f'baseline{name}-{date_str}.json'
         baseline_dir = '/etc/sos/.captures'
         baseline_path = os.path.join(baseline_dir, filename)
