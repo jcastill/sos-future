@@ -1561,6 +1561,13 @@ class SoSReport(SoSComponent):
             if checksum:
                 fp.write(checksum + "\n")
 
+    def _find_latest_baseline(self, baseline_dir='/etc/sos/.captures'):
+        """Find the most recent baseline snapshot file."""
+        files = sorted(
+            glob.glob(os.path.join(baseline_dir, 'baseline-*.json')),
+            key=os.path.getmtime, reverse=True)
+        return files[0] if files else None
+
     def final_work(self):
         archive = None    # archive path
         directory = None  # report directory path (--build)
@@ -1593,6 +1600,14 @@ class SoSReport(SoSComponent):
             self.archive.add_final_manifest_data(self.opts.compression_type)
             # Save baseline snapshot if requested in the command line
             if self.opts.baseline:
+                prev = self._find_latest_baseline()
+                if prev:
+                    self.archive.add_file(
+                        prev,
+                        dest=os.path.join('sos_reports',
+                                          'previous_baseline.json'))
+                    self.soslog.info(
+                        f"Including previous baseline: {prev}")
                 self.archive.save_baseline_snapshot(
                     name=self.opts.baseline_name)
         # Hide upload passwords in the log files
