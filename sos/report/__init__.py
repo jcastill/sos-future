@@ -1302,6 +1302,9 @@ class SoSReport(SoSComponent):
             )
 
     def setup(self):
+        if getattr(self, '_previous_baseline', {}):
+            for _plugname, _plug in self.loaded_plugins:
+                _plug._previous_baseline = self._previous_baseline
         self.ui_log.info(_(" Setting up plugins ..."))
         for plugname, plug in self.loaded_plugins:
             try:
@@ -1936,6 +1939,7 @@ class SoSReport(SoSComponent):
 
             self.batch()
             self.prework()
+            self._load_previous_baseline()
             self.add_manifest_data()
             self.setup()
             self.collect()
