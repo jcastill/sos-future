@@ -91,6 +91,7 @@ class SoSReport(SoSComponent):
         'alloptions': False,
         'all_logs': False,
         'baseline': False,
+        'incremental': False,
         'baseline_name':'',
         'build': False,
         'case_id': '',
@@ -216,6 +217,11 @@ class SoSReport(SoSComponent):
                                      "snapshot is saved to "
                                      "/etc/sos/.captures/ for historical "
                                      "tracking")
+        report_grp.add_argument("--incremental", action="store_true",
+                                dest="incremental", default=False,
+                                help="only collect files thatare new or "
+                                "modified since the last baseline "
+                                "snapshot (requires --baseline)")
         report_grp.add_argument("--baseline-name", type=str, default='',
                                 dest="baseline_name",
                                 help="name for the baseline snapshot"
@@ -749,7 +755,8 @@ class SoSReport(SoSComponent):
             'verbosity': self.opts.verbosity,
             'cmdlineopts': self.opts,
             'devices': self.devices,
-            'namespaces': self.namespaces
+            'namespaces': self.namespaces,
+            'previous_baseline': getattr(self, '_previous_baseline', {}),
         }
 
     def get_temp_file(self):
@@ -1248,6 +1255,8 @@ class SoSReport(SoSComponent):
 
     def prework(self):
         self.policy.pre_work()
+        if self.opts.incremental and not self.opts.baseline:
+            raise SystemExit("--incremental requires --baseline")
         try:
             self.ui_log.info(_(" Setting up archive ..."))
             self.setup_archive()
@@ -1270,6 +1279,27 @@ class SoSReport(SoSComponent):
             traceback.print_exc()
             self.ui_log.error(e)
         self._exit(1)
+
+    def _load_previous_baseline(self):
+        """Load and index previous baseline for incremental mode"""
+        from sos.baseline.comparison import extract_files_metadata
+        self._previous_baseline = {}
+        if not self.opts.incremental:
+            return
+        prev = self._find_latest_baseline()
+        if prev:
+            import json
+            with open(prev, 'r', encoding='utf-8') as f:
+                prev_data = json.load(f)
+            self._previous_baseline = extract_files_metadata(prev_data)
+            self.soslog.info(
+                f"Loaded previous baseline ({len(self._previous_baseline)} "
+                f"files) for incremental collection"
+            )
+        else:
+            self.soslog.warning(
+                "No previous baseline found, collecting all files."
+            )
 
     def setup(self):
         self.ui_log.info(_(" Setting up plugins ..."))

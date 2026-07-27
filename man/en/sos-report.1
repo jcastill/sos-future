@@ -30,6 +30,7 @@ sos_report \- Collect and package diagnostic and support data
           [--journal-size]\fR
           [--all-logs]\fR
           [--baseline]\fR
+          [--incremental]\fR
           [--since YYYYMMDD[HHMMSS]]\fR
           [--skip-commands commands]\fR
           [--skip-files files]\fR
@@ -220,6 +221,12 @@ ownership, SELinux context, and SHA256 hashes for critical files. When specified
 a dated snapshot is saved to \fB/etc/sos/.captures/baseline\-YYYY\-MM\-DD_HH\-MM\-SS.json\fR
 for tracking system state changes over time by comparing baselines from different
 dates.
+.TP
+.B \-\-incremental
+Only collect files that are new or modified since the last baseline snapshot.
+Must be used with \fB\-\-baseline\fR. Unchanged files are recorded in the
+manifest with collection_mode "skipped_unchanged" but their contents are not
+included in the archive, resulting in a significantly smaller report.
 .TP
 .B \--since YYYYMMDD[HHMMSS]
 Limits the collection of log archives to those newer than this date. A log

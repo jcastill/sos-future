@@ -586,6 +586,7 @@ class Plugin():
         self._tail_files_list = []
         self._mount_cache = None
         self._capture_baseline = commons['cmdlineopts'].baseline
+        self._previous_baseline = commons.get('previous_baseline', {})
 
         self.soslog = self.commons['soslog'] if 'soslog' in self.commons \
             else logging.getLogger('sos')
@@ -817,6 +818,27 @@ class Plugin():
                     metadata["sha256"] = file_hash
 
         return metadata
+
+    def _file_changed(self, path, current_stat, prev_meta):
+        """Check if a file has changed compared to previous baseline."""
+        if current_stat.st_size != prev_meta.get('size'):
+            return True
+        if current_stat.st_mtime != prev_meta.get('mtime'):
+            return True
+        current_mode = format(stat.S_IMODE(current_stat.st_mode), '04o')
+        if current_mode != prev_meta.get('mode'):
+            return True
+        if current_stat.st_uid != prev_meta.get('uid'):
+            return True
+        if current_stat.st_gid != prev_meta.get('gid'):
+            return True
+        # For critical paths, also lets compare hash
+        if any(path.startswith(p) for p in self._HASH_CRITICAL_PATHS):
+            current_hash = self._get_file_hash(path)
+            if current_hash != prev_meta.get('sha256'):
+                return True
+        # File hasn't changed
+        return False
 
     def set_plugin_manifest(self, manifest):
         """Pass in a manifest object to the plugin to write to
@@ -2102,6 +2124,13 @@ class Plugin():
                         file_stat = None
                     else:
                         self._log_info(f"failed to stat '{_file}', skipping")
+                        continue
+                if self._capture_baseline and self._previous_baseline:
+                    prev_meta = self._previous_baseline.get(_file)
+                    if prev_meta and not self._file_changed(_file, file_stat, prev_meta):
+                        _meta = self._collect_file_metadata(_file, file_stat)
+                        _meta['collection_mode'] = 'skipped_unchanged'
+                        _manifest_metadata.append(_meta)
                         continue
                 current_size += file_size
 
