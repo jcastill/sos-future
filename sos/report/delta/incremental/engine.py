@@ -130,8 +130,8 @@ class DeltaDetector:
         Delegates to snapshot.save_snapshot() from the baseline
         snapshot module.
 
-        :param manifest_json: The manifest data to save
-        :type manifest_json: dict
+        :param manifest_json: The JSON-encoded manifest string to save
+        :type manifest_json: str
 
         :param name: Optional baseline name for the snapshot filename
         :type name: str
