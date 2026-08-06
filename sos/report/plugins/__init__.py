@@ -1895,7 +1895,7 @@ class Plugin():
                     else:
                         self._log_info(f"failed to stat '{_file}', skipping")
                         continue
-                if self._delta_detector and self._delta_detector.should_skip(_file, file_stat):
+                if (self._delta_detector and file_stat and self._delta_detector.should_skip(_file, file_stat)):
                     _manifest_metadata.append(
                         self._delta_detector.get_skip_metadata(_file, file_stat))
                     continue
