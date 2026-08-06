@@ -756,7 +756,7 @@ class SoSReport(SoSComponent):
             'cmdlineopts': self.opts,
             'devices': self.devices,
             'namespaces': self.namespaces,
-            'previous_baseline': getattr(self, '_previous_baseline', {}),
+            'delta_detector': getattr(self, '_delta_detector', None),
         }
 
     def get_temp_file(self):
@@ -1280,31 +1280,7 @@ class SoSReport(SoSComponent):
             self.ui_log.error(e)
         self._exit(1)
 
-    def _load_previous_baseline(self):
-        """Load and index previous baseline for incremental mode"""
-        from sos.baseline.comparison import extract_files_metadata
-        self._previous_baseline = {}
-        if not self.opts.incremental:
-            return
-        prev = self._find_latest_baseline()
-        if prev:
-            import json
-            with open(prev, 'r', encoding='utf-8') as f:
-                prev_data = json.load(f)
-            self._previous_baseline = extract_files_metadata(prev_data)
-            self.soslog.info(
-                f"Loaded previous baseline ({len(self._previous_baseline)} "
-                f"files) for incremental collection"
-            )
-        else:
-            self.soslog.warning(
-                "No previous baseline found, collecting all files."
-            )
-
     def setup(self):
-        if getattr(self, '_previous_baseline', {}):
-            for _plugname, _plug in self.loaded_plugins:
-                _plug._previous_baseline = self._previous_baseline
         self.ui_log.info(_(" Setting up plugins ..."))
         for plugname, plug in self.loaded_plugins:
             try:
@@ -1594,13 +1570,6 @@ class SoSReport(SoSComponent):
             if checksum:
                 fp.write(checksum + "\n")
 
-    def _find_latest_baseline(self, baseline_dir='/etc/sos/.captures'):
-        """Find the most recent baseline snapshot file."""
-        files = sorted(
-            glob.glob(os.path.join(baseline_dir, 'baseline-*.json')),
-            key=os.path.getmtime, reverse=True)
-        return files[0] if files else None
-
     def final_work(self):
         archive = None    # archive path
         directory = None  # report directory path (--build)
@@ -1633,16 +1602,22 @@ class SoSReport(SoSComponent):
             self.archive.add_final_manifest_data(self.opts.compression_type)
             # Save baseline snapshot if requested in the command line
             if self.opts.baseline:
-                prev = self._find_latest_baseline()
-                if prev:
+                from sos.report.delta.baseline.snapshot import save_snapshot
+                engine = getattr(self, '_delta_detector', None)
+                if engine and engine.previous_snapshot_path:
                     self.archive.add_file(
-                        prev,
+                        engine.previous_snapshot_path,
                         dest=os.path.join('sos_reports',
                                           'previous_baseline.json'))
                     self.soslog.info(
-                        f"Including previous baseline: {prev}")
-                self.archive.save_baseline_snapshot(
-                    name=self.opts.baseline_name)
+                        "Including previous baseline: "
+                        f"{engine.previous_snapshot_path}"
+                    )
+                save_snapshot(
+                    self.archive.manifest.get_json(indent=4),
+                    name=self.opts.baseline_name,
+                    soslog=self.soslog
+                )
         # Hide upload passwords in the log files
         self._obfuscate_upload_passwords()
         # Now, separately clean the log files that cleaner also wrote to
@@ -1939,7 +1914,12 @@ class SoSReport(SoSComponent):
 
             self.batch()
             self.prework()
-            self._load_previous_baseline()
+            if self.opts.incremental:
+                from sos.report.delta.incremental.engine import DeltaDetector
+                self._delta_detector = DeltaDetector(soslog=self.soslog)
+                self._delta_detector.load_previous(name=self.opts.baseline_name)
+            else:
+                self._delta_detector = None
             self.add_manifest_data()
             self.setup()
             self.collect()
