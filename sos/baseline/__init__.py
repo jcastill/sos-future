@@ -9,8 +9,8 @@
 # See the LICENSE file in the source distribution for further information.
 
 from sos.component import SoSComponent
-from sos.baseline.comparison import (compare_baselines,
-                                     format_diff_text)
+from sos.report.delta.baseline.comparison import (compare_baselines,
+                                                   format_diff_text)
 
 import glob
 import json
