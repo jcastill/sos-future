@@ -16,7 +16,7 @@ import glob
 import json
 import os
 
-class SoSBaseline(SoSComponent):
+class SoSCompare(SoSComponent):
 
     desc = "Compare baseline snapshots for system diff detection"
     load_probe = False

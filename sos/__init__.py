@@ -55,13 +55,13 @@ class SoS():
         import sos.cleaner
         import sos.help
         import sos.upload
-        import sos.baseline
+        import sos.compare
         self._components = {
             'report': (sos.report.SoSReport, ['rep']),
             'clean': (sos.cleaner.SoSCleaner, ['cleaner', 'mask']),
             'help': (sos.help.SoSHelper, []),
             'upload': (sos.upload.SoSUpload, []),
-            'baseline': (sos.baseline.SoSBaseline, ['base'])
+            'compare': (sos.compare.SoSCompare, ['baseline', 'base'])
         }
         # some distros do not want pexpect as a default dep, so try to load
         # collector here, and if it fails add an entry that implies it is at
