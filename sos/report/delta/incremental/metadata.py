@@ -172,13 +172,7 @@ def collect_file_metadata(path, file_stat=None, soslog=None):
     except (ImportError, KeyError, OSError):
         pass
 
-    if stat.S_ISLNK(file_stat.st_mode):
-        metadata["file_type"] = "symlink"
-        try:
-            metadata["symlink_target"] = os.readlink(path)
-        except OSError:
-            pass
-    elif stat.S_ISREG(file_stat.st_mode):
+    if stat.S_ISREG(file_stat.st_mode):
         metadata["file_type"] = "file"
     elif stat.S_ISDIR(file_stat.st_mode):
         metadata["file_type"] = "directory"
