@@ -557,48 +557,6 @@ class FileCacheArchive(Archive):
         self.add_string(self.manifest.get_json(indent=4),
                         os.path.join('sos_reports', 'manifest.json'))
 
-    def save_baseline_snapshot(self, name=''):
-        """Saves a manifest.json extended via baseline to
-        the sos config directory
-        """
-        if name and not re.match(r'^[a-zA-Z0-9._-]+$', name):
-            self.log_error(f"Invalid baseline name '{name}': "
-                           "only alphanumerics, dots, hyphens, "
-                           "and underscores are allowed")
-            return
-
-        date_str = datetime.strftime(datetime.now(), '%Y-%m-%d_%H-%M-%S')
-        name = f"-{name}" if name else ''
-        filename = f'baseline{name}-{date_str}.json'
-        baseline_dir = '/etc/sos/.captures'
-        baseline_path = os.path.join(baseline_dir, filename)
-
-        try:
-            os.makedirs(baseline_dir, mode=0o700, exist_ok=True)
-
-            # Remove write protection from previous snapshot if overwriting
-            if os.path.exists(baseline_path):
-                os.chmod(baseline_path, 0o644)
-
-            manifest_json = self.manifest.get_json(indent=4)
-            with open(baseline_path, 'w', encoding='utf-8') as bf:
-                bf.write(manifest_json)
-
-            os.chmod(baseline_path, 0o444)
-
-            self.log_info(f"Baseline snapshot saved to {baseline_path}")
-
-        except PermissionError as err:
-            self.log_error("Permission denied writing baseline snapshot to "
-                          f"{baseline_path}: {err}")
-        except OSError as err:
-            self.log_error(
-                "Failed to create baseline directory "
-                f"{baseline_dir}: {err}")
-        except Exception as err:
-            self.log_error("Unexpected error saving baseline snapshot: "
-                           f"{err}")          
-
     def rename_archive_root(self, cleaner):
         """Rename the archive to an obfuscated version using an initialized
         SoSCleaner instance
