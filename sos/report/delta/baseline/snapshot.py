@@ -17,20 +17,27 @@ from datetime import datetime
 
 _default_log = logging.getLogger('sos')
 
-def find_latest_snapshot(baseline_dir='/etc/sos/.captures'):
-    """Find the most recent baseline snapshot file. 
+def find_latest_snapshot(baseline_dir='/etc/sos/.captures', name=''):
+    """Find the most recent baseline snapshot file.
 
     Scans the baseline directory for files matchin ``baseline-*.json``
-    and returns the path to the one with the newest modification time. 
+    and returns the path to the one with the newest modification time.
 
     :param baseline_dir: Directory to scan for snapshots
     :type baseline_dir: str
 
+    :param name: Optional baseline name to filter snapshots
+    :type name: str
+
     :returns: Path to the newest snapshot or None if none found
-    :rtype: str or None    
+    :rtype: str or None
     """
+    if name:
+        pattern = os.path.join(baseline_dir, f'baseline-{name}-*.json')
+    else:
+        pattern = os.path.join(baseline_dir, 'baseline-*.json')
     files = sorted(
-        glob.glob(os.path.join(baseline_dir, 'baseline-*.json')),
+        glob.glob(pattern),
         key=os.path.getmtime, reverse=True)
     return files[0] if files else None
 

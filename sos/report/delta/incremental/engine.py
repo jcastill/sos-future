@@ -49,7 +49,7 @@ class DeltaDetector:
         :type name: str
         """
         log = self._soslog or _default_log
-        prev = find_latest_snapshot()
+        prev = find_latest_snapshot(name=name)
         if prev:
             self._previous_path = prev
             prev_data = load_snapshot(prev, soslog=log)
