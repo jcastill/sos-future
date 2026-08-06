@@ -24,7 +24,6 @@ import logging
 import fnmatch
 import errno
 import textwrap
-import hashlib
 
 from datetime import datetime
 from pathlib import Path
@@ -547,16 +546,6 @@ class Plugin():
     option_list = []
     is_snap = False
 
-    # Critical paths for hash collection (for baseline comparison)
-    _HASH_CRITICAL_PATHS = (
-        '/etc/',           # Configuration files
-        '/boot/',          # Boot files (kernel, initramfs)
-        '/usr/bin/',       # System binaries
-        '/usr/sbin/',      # System admin binaries
-        '/lib/systemd/',   # Systemd unit files
-    )
-    _HASH_SIZE_LIMIT = 10 * 1024 * 1024  # 10MB maximum for hashing
-
     # Default predicates
     predicate = None
     cmd_predicate = None
@@ -584,9 +573,7 @@ class Plugin():
         self.skip_commands = commons['cmdlineopts'].skip_commands
         self.default_environment = {}
         self._tail_files_list = []
-        self._mount_cache = None
-        self._capture_baseline = commons['cmdlineopts'].baseline
-        self._previous_baseline = commons.get('previous_baseline', {})
+        self._delta_detector = commons.get('delta_detector', None)
 
         self.soslog = self.commons['soslog'] if 'soslog' in self.commons \
             else logging.getLogger('sos')
@@ -622,223 +609,6 @@ class Plugin():
                 desc='Enable post-processing of collected data'
             )
         }
-
-    def _get_filesystem_type(self, path):
-        """Get the filesystem type for a given path by parsing /proc/mounts.
-
-        Returns the filesystem type (e.g., 'ext4', 'nfs', 'proc', 'sysfs') or
-        None if the filesystem type cannot be determined.
-
-        :param path: The filesystem path to check
-        :type path: str
-
-        :returns: Filesystem type or None
-        :rtype: str or None
-        """
-        # Build mount cache on first call
-        if self._mount_cache is None:
-            self._mount_cache = []
-            try:
-                with open('/proc/mounts', 'r', encoding='UTF-8') as mounts_file:
-                    for line in mounts_file:
-                        parts = line.split()
-                        if len(parts) >= 3:
-                            # parts[0] = device, parts[1] = mount_point,
-                            # parts[2] = fs_type
-                            mount_point = parts[1]
-                            fs_type = parts[2]
-                            self._mount_cache.append((mount_point, fs_type))
-            except Exception as err:
-                self._log_debug(f"Could not read /proc/mounts: {err}")
-                self._mount_cache = []
-
-            # Sort by mount point length (longest first) for proper matching
-            # This ensures /sys/kernel/debug matches before /sys
-            self._mount_cache.sort(key=lambda x: len(x[0]), reverse=True)
-
-        # Find the longest matching mount point
-        for mount_point, fs_type in self._mount_cache:
-            if path.startswith(mount_point):
-                return fs_type
-
-        return None
-
-    def _should_skip_file_metadata(self, path):
-        """Determine if size/mtime metadata should be skipped for a file.
-
-        Metadata collection is skipped for files on:
-        - Pseudo filesystems (proc, sysfs, debugfs, etc.)
-        - Network filesystems (nfs, nfs4, cifs, etc.)
-
-        :param path: The filesystem path to check
-        :type path: str
-
-        :returns: True if metadata should be skipped
-        :rtype: bool
-        """
-        # Filesystems where size/mtime are not meaningful or may cause hangs
-        pseudo_filesystems = {
-            'proc', 'sysfs', 'tmpfs', 'devtmpfs', 'devpts', 'debugfs',
-            'tracefs', 'cgroup', 'cgroup2', 'pstore', 'bpf', 'configfs',
-            'securityfs', 'fusectl', 'hugetlbfs', 'mqueue', 'ramfs'
-        }
-
-        network_filesystems = {
-            'nfs', 'nfs4', 'cifs', 'smbfs', 'autofs', 'fuse.sshfs',
-            'ncpfs', 'afs', 'glusterfs', 'lustre'
-        }
-
-        skip_fs_types = pseudo_filesystems | network_filesystems
-
-        fs_type = self._get_filesystem_type(path)
-        return fs_type in skip_fs_types if fs_type else False
-
-    def _get_file_hash(self, path, algorithm='sha256', max_size=None):
-        """Compute hash of a file for content comparison.
-
-        :param path: Path to the file to hash
-        :type path: str
-
-        :param algorithm: Hash algorithm to use (default: sha256)
-        :type algorithm: str
-
-        :param max_size: Maximum file size to hash in bytes (default: 10MB)
-        :type max_size: int or None
-
-        :returns: Hexadecimal hash string or None if file too large or error
-        :rtype: str or None
-        """
-        if max_size is None:
-            max_size = self._HASH_SIZE_LIMIT
-
-        try:
-            # Check file size first
-            file_size = os.path.getsize(path)
-            if file_size > max_size:
-                self._log_debug(
-                    f"Skipping hash for '{path}': size {file_size} "
-                    f"exceeds limit {max_size}"
-                )
-                return None
-
-            h = hashlib.new(algorithm)
-            with open(path, 'rb') as f:
-                # Read in 64KB chunks for efficiency
-                while chunk := f.read(65536):
-                    h.update(chunk)
-            return h.hexdigest()
-        except (OSError, IOError) as err:
-            self._log_debug(f"Failed to hash '{path}': {err}")
-            return None
-
-    def _collect_file_metadata(self, path, file_stat=None):
-        """Collect comprehensive file metadata for baseline comparison.
-
-        Collects file metadata including size, timestamps, permissions,
-        ownership, SELinux context, and (for critical files) content hash.
-
-        :param path: The filesystem path to collect metadata for
-        :type path: str
-
-        :param file_stat: Optional pre-computed stat object to avoid re-stat
-        :type file_stat: os.stat_result or None
-
-        :returns: Dictionary of file metadata or None on error
-        :rtype: dict or None
-        """
-        if file_stat is None:
-            try:
-                file_stat = os.stat(path)
-            except OSError as err:
-                self._log_debug(f"Failed to stat '{path}': {err}")
-                return None
-
-        # Core metadata (Tier 1)
-        metadata = {
-            "path": path.lstrip('/'),  # Consistent with existing convention
-            "source_path": path,
-            "size": file_stat.st_size,
-            "mtime": file_stat.st_mtime,
-            "ctime": file_stat.st_ctime,  # Tier 2, but low overhead
-            "mode": oct(file_stat.st_mode)[-4:],  # 4-digit octal (e.g., "0644")
-            "uid": file_stat.st_uid,
-            "gid": file_stat.st_gid,
-        }
-
-        # Owner/group names (Tier 1) - graceful fallback if not available
-        try:
-            import pwd
-            import grp
-            metadata["owner"] = pwd.getpwuid(file_stat.st_uid).pw_name
-            metadata["group"] = grp.getgrgid(file_stat.st_gid).gr_name
-        except (ImportError, KeyError, OSError):
-            # pwd/grp not available (Windows) or user/group doesn't exist
-            pass
-
-        # File type detection (Tier 1)
-        if stat.S_ISLNK(file_stat.st_mode):
-            metadata["file_type"] = "symlink"
-            # Symlink target (Tier 2)
-            try:
-                metadata["symlink_target"] = os.readlink(path)
-            except OSError:
-                pass
-        elif stat.S_ISREG(file_stat.st_mode):
-            metadata["file_type"] = "file"
-        elif stat.S_ISDIR(file_stat.st_mode):
-            metadata["file_type"] = "directory"
-        elif stat.S_ISBLK(file_stat.st_mode):
-            metadata["file_type"] = "block_device"
-        elif stat.S_ISCHR(file_stat.st_mode):
-            metadata["file_type"] = "char_device"
-        elif stat.S_ISFIFO(file_stat.st_mode):
-            metadata["file_type"] = "fifo"
-        elif stat.S_ISSOCK(file_stat.st_mode):
-            metadata["file_type"] = "socket"
-        else:
-            metadata["file_type"] = "unknown"
-
-        # SELinux context (Tier 1 - critical for RHEL/Fedora)
-        try:
-            import selinux
-            if selinux.is_selinux_enabled():
-                context = selinux.getfilecon(path)
-                if context and len(context) > 1:
-                    metadata["selinux_context"] = context[1]
-        except (ImportError, OSError):
-            # selinux module not available or context read failed
-            pass
-
-        # Content hash (Tier 2 - only for regular files in critical paths)
-        if stat.S_ISREG(file_stat.st_mode):
-            # Check if file is in a critical path
-            if any(path.startswith(cpath) for cpath in self._HASH_CRITICAL_PATHS):
-                file_hash = self._get_file_hash(path)
-                if file_hash:
-                    metadata["sha256"] = file_hash
-
-        return metadata
-
-    def _file_changed(self, path, current_stat, prev_meta):
-        """Check if a file has changed compared to previous baseline."""
-        if current_stat.st_size != prev_meta.get('size'):
-            return True
-        if current_stat.st_mtime != prev_meta.get('mtime'):
-            return True
-        current_mode = format(stat.S_IMODE(current_stat.st_mode), '04o')
-        if current_mode != prev_meta.get('mode'):
-            return True
-        if current_stat.st_uid != prev_meta.get('uid'):
-            return True
-        if current_stat.st_gid != prev_meta.get('gid'):
-            return True
-        # For critical paths, also lets compare hash
-        if any(path.startswith(p) for p in self._HASH_CRITICAL_PATHS):
-            current_hash = self._get_file_hash(path)
-            if current_hash != prev_meta.get('sha256'):
-                return True
-        # File hasn't changed
-        return False
 
     def set_plugin_manifest(self, manifest):
         """Pass in a manifest object to the plugin to write to
@@ -2125,13 +1895,10 @@ class Plugin():
                     else:
                         self._log_info(f"failed to stat '{_file}', skipping")
                         continue
-                if self._capture_baseline and self._previous_baseline:
-                    prev_meta = self._previous_baseline.get(_file)
-                    if prev_meta and not self._file_changed(_file, file_stat, prev_meta):
-                        _meta = self._collect_file_metadata(_file, file_stat)
-                        _meta['collection_mode'] = 'skipped_unchanged'
-                        _manifest_metadata.append(_meta)
-                        continue
+                if self._delta_detector and self._delta_detector.should_skip(_file, file_stat):
+                    _manifest_metadata.append(
+                        self._delta_detector.get_skip_metadata(_file, file_stat))
+                    continue
                 current_size += file_size
 
                 if sizelimit and current_size > sizelimit:
@@ -2153,14 +1920,17 @@ class Plugin():
                         self._tail_files_list.append((_file, add_size))
                         _manifest_files.append(_file.lstrip('/'))
                         # Add metadata for tailed file
-                        if file_stat and\
-                            not self._should_skip_file_metadata(_file)\
-                                and self._capture_baseline:
-                            metadata = self._collect_file_metadata(_file, file_stat)
-                            if metadata:
-                                metadata["collection_mode"] = "tailed"
-                                metadata["tail_size"] = add_size
-                                _manifest_metadata.append(metadata)
+                        if file_stat and self._delta_detector:
+                            from sos.report.delta.incremental.metadata import (
+                                should_skip_file_metadata, collect_file_metadata
+                            )
+                            if not should_skip_file_metadata(_file):
+                                metadata = collect_file_metadata(
+                                    _file, file_stat, soslog=self.soslog)
+                                if metadata:
+                                    metadata["collection_mode"] = "tailed"
+                                    metadata["tail_size"] = add_size
+                                    _manifest_metadata.append(metadata)
                 else:
                     # size limit not exceeded, copy the file
                     _manifest_files.append(_file.lstrip('/'))
@@ -2169,13 +1939,16 @@ class Plugin():
                     # should collect the whole file and stop
                     limit_reached = (sizelimit and current_size == sizelimit)
                     # Add metadata for regular file
-                    if file_stat and\
-                        not self._should_skip_file_metadata(_file)\
-                            and self._capture_baseline:
-                        metadata = self._collect_file_metadata(_file, file_stat)
-                        if metadata:
-                            metadata["collection_mode"] = "full"
-                            _manifest_metadata.append(metadata)
+                    if file_stat and self._delta_detector:
+                        from sos.report.delta.incremental.metadata import (
+                            should_skip_file_metadata, collect_file_metadata
+                        )
+                        if not should_skip_file_metadata(_file):
+                            metadata = collect_file_metadata(
+                                _file, file_stat, soslog=self.soslog)
+                            if metadata:
+                                metadata["collection_mode"] = "full"
+                                _manifest_metadata.append(metadata)
 
             if not container:
                 # container collection manifest additions are handled later
