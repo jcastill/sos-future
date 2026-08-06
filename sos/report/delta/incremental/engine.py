@@ -53,6 +53,12 @@ class DeltaDetector:
         if prev:
             self._previous_path = prev
             prev_data = load_snapshot(prev, soslog=log)
+            if prev_data is None:
+                log.warning(
+                    f"Could not parse previous baseline '{prev}', "
+                    "collecting all files."
+                )
+                return
             self._previous = extract_files_metadata(prev_data)
             log.info(
                 f"Loaded previous baseline ({len(self._previous)} "
