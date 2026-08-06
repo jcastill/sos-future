@@ -111,8 +111,8 @@ def save_snapshot(manifest_json, name='', baseline_dir='/etc/sos/.captures',
                   f"{baseline_path}: {e}")
     except OSError as e:
         log.error(
-            "Failed to create baseline directory "
-            f"{baseline_dir}: {e}"
+            "Failed to save baseline snapshot to "
+            f"{baseline_path}: {e}"
         )
     except Exception as e:
         log.error("Unexpected error saving baseline snapshot: "
