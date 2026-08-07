@@ -17,7 +17,7 @@ from datetime import datetime
 
 _default_log = logging.getLogger('sos')
 
-def find_latest_snapshot(baseline_dir='/etc/sos/.captures', name=''):
+def find_latest_snapshot(baseline_dir='/etc/sos/.baselines', name=''):
     """Find the most recent baseline snapshot file.
 
     Scans the baseline directory for files matchin ``baseline-*.json``
@@ -62,7 +62,7 @@ def load_snapshot(path, soslog=None):
                   f"'{path}' : {e}")
         return None
 
-def save_snapshot(manifest_json, name='', baseline_dir='/etc/sos/.captures',
+def save_snapshot(manifest_json, name='', baseline_dir='/etc/sos/.baselines',
                   soslog=None):
     """Save manifest JSON as a dated baseline snapshot.
 

@@ -215,7 +215,7 @@ class SoSReport(SoSComponent):
                                      "ownership, SELinux context, and SHA256 "
                                      "hashes for critical files). A dated "
                                      "snapshot is saved to "
-                                     "/etc/sos/.captures/ for historical "
+                                     "/etc/sos/.baselines/ for historical "
                                      "tracking")
         report_grp.add_argument("--incremental", action="store_true",
                                 dest="incremental", default=False,

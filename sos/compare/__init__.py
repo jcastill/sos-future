@@ -26,7 +26,7 @@ class SoSCompare(SoSComponent):
         'date1': '',
         'date2': '',
         'name': '',
-        'baseline_dir': '/etc/sos/.captures',
+        'baseline_dir': '/etc/sos/.baselines',
         'output_format': 'text',
     }
 
