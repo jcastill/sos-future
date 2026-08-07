@@ -159,7 +159,7 @@ def collect_file_metadata(path, file_stat=None, soslog=None):
         "size": file_stat.st_size,
         "mtime": file_stat.st_mtime,
         "ctime": file_stat.st_ctime,
-        "mode": oct(file_stat.st_mode)[-4:],
+        "mode": format(stat.S_IMODE(file_stat.st_mode), '04o'),
         "uid": file_stat.st_uid,
         "gid": file_stat.st_gid,
     }
