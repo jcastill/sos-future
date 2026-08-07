@@ -1885,6 +1885,15 @@ class SoSReport(SoSComponent):
 
     def execute(self):
         try:
+            if self.opts.baseline or self.opts.incremental:
+                from sos.report.delta.incremental.engine import DeltaDetector
+                self._delta_detector = DeltaDetector(soslog=self.soslog)
+                if self.opts.incremental:
+                    self._delta_detector.load_previous(
+                        name=self.opts.baseline_name
+                    )
+            else:
+                self._delta_detector = None
             self.policy.set_commons(self.get_commons())
             self.load_plugins()
             self._set_all_options()
@@ -1914,12 +1923,6 @@ class SoSReport(SoSComponent):
 
             self.batch()
             self.prework()
-            if self.opts.incremental:
-                from sos.report.delta.incremental.engine import DeltaDetector
-                self._delta_detector = DeltaDetector(soslog=self.soslog)
-                self._delta_detector.load_previous(name=self.opts.baseline_name)
-            else:
-                self._delta_detector = None
             self.add_manifest_data()
             self.setup()
             self.collect()
