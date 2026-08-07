@@ -1902,7 +1902,9 @@ class Plugin():
                         _manifest_metadata.append(skip_meta)
                     continue
                 current_size += file_size
-
+                from sos.report.delta.incremental.metadata import (
+                    should_skip_file_metadata, collect_file_metadata
+                )
                 if sizelimit and current_size > sizelimit:
                     limit_reached = True
 
@@ -1923,9 +1925,6 @@ class Plugin():
                         _manifest_files.append(_file.lstrip('/'))
                         # Add metadata for tailed file
                         if file_stat and self._delta_detector:
-                            from sos.report.delta.incremental.metadata import (
-                                should_skip_file_metadata, collect_file_metadata
-                            )
                             if not should_skip_file_metadata(_file):
                                 metadata = collect_file_metadata(
                                     _file, file_stat, soslog=self.soslog)
@@ -1942,9 +1941,6 @@ class Plugin():
                     limit_reached = (sizelimit and current_size == sizelimit)
                     # Add metadata for regular file
                     if file_stat and self._delta_detector:
-                        from sos.report.delta.incremental.metadata import (
-                            should_skip_file_metadata, collect_file_metadata
-                        )
                         if not should_skip_file_metadata(_file):
                             metadata = collect_file_metadata(
                                 _file, file_stat, soslog=self.soslog)
