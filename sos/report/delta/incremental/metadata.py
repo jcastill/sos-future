@@ -122,7 +122,7 @@ def get_file_hash(path, algorithm='sha256', max_size=None, soslog=None):
             while chunk := f.read(65536):
                 h.update(chunk)
         return h.hexdigest()
-    except (OSError, IOError) as e:
+    except OSError as e:
         log.debug(f"Failed to hash '{path}': {e}")
         return None
 
