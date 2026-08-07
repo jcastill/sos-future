@@ -57,20 +57,35 @@ class SoSCompare(SoSComponent):
 
         # Full path provided
         if os.path.isfile(identifier):
-            with open(identifier, 'r', encoding='utf-8') as f:
-                return json.load(f)
+            try:
+                with open(identifier, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except (OSError, json.JSONDecodeError) as e:
+                self.ui_log.error(
+                    f"Failed to load baseline '{identifier}': {e}")
+                return None
         # Exact match by date or name
         path = os.path.join(baseline_dir, f"baseline-{identifier}.json")
         if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except (OSError, json.JSONDecodeError) as e:
+                self.ui_log.error(
+                    f"Failed to load baseline '{path}': {e}")
+                return None
         # Glob for named baselines
         matches = glob.glob(
             os.path.join(baseline_dir, f"baseline-*{identifier}*.json"))
         if matches:
             matches.sort(key=os.path.getmtime, reverse=True)
-            with open(matches[0], 'r', encoding='utf-8') as f:
-                return json.load(f)
+            try:
+                with open(matches[0], 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except (OSError, json.JSONDecodeError) as e:
+                self.ui_log.error(
+                    f"Failed to load baseline '{matches[0]}': {e}")
+                return None
         self.ui_log.error(f"No baseline found matching '{identifier}'")
         self._list_available()
         return None
